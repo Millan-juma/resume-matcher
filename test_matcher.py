@@ -1,4 +1,4 @@
-from matcher import score
+from app.services.matcher import score
 
 job = """We need a backend developer with Python, FastAPI, PostgreSQL and Docker
 experience. Knowledge of Redis and AWS is a plus."""
