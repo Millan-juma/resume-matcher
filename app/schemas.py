@@ -30,3 +30,31 @@ class UserOut(BaseModel):
     org_id: str
 
     model_config = {"from_attributes": True}
+
+
+class JobCreate(BaseModel):
+    title: str = Field(min_length=2, max_length=200)
+    description: str = Field(min_length=20)
+
+
+class JobOut(BaseModel):
+    id: str
+    title: str
+    description: str
+    org_id: str
+
+    model_config = {"from_attributes": True}
+
+
+class ApplicationOut(BaseModel):
+    id: str
+    job_id: str
+    stage: str
+    score: float | None
+    score_breakdown: dict | None
+
+    model_config = {"from_attributes": True}
+
+
+class StageUpdate(BaseModel):
+    stage: str
