@@ -1,11 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
 from app.core.db import get_db
 from app.core.security import create_access_token, hash_password, verify_password
-from app.models import Organization, Role, User
+from app.core.ratelimit import limit
+from app.models import Application, Organization, Role, User
 from app.schemas import LoginIn, RegisterCandidate, RegisterOrg, TokenOut, UserOut
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -45,7 +46,9 @@ def register_candidate(body: RegisterCandidate, db: Session = Depends(get_db)):
 
 
 @router.post("/login", response_model=TokenOut)
-def login(body: LoginIn, db: Session = Depends(get_db)):
+def login(body: LoginIn, request: Request, db: Session = Depends(get_db)):
+    ip = request.client.host if request.client else "unknown"
+    limit(f"login:{ip}:{body.email.lower()}", 5, 300)
     user = db.scalar(select(User).where(User.email == body.email.lower()))
     if not user or not verify_password(body.password, user.password_hash):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid email or password")
@@ -55,3 +58,13 @@ def login(body: LoginIn, db: Session = Depends(get_db)):
 @router.get("/me", response_model=UserOut)
 def me(user: User = Depends(get_current_user)):
     return user
+
+
+@router.delete("/me", status_code=204)
+def delete_my_account(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Right to erasure: removes a candidate and all their applications and resume text."""
+    if user.role != Role.candidate:
+        raise HTTPException(400, "Staff accounts must be removed by an organization admin")
+    db.execute(delete(Application).where(Application.candidate_id == user.id))
+    db.delete(user)
+    db.commit()

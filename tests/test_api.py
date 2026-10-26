@@ -47,3 +47,23 @@ def test_orgs_are_isolated(client):
     job_id = client.post("/jobs", json=JOB, headers=a).json()["id"]
     assert client.get("/jobs", headers=b).json() == []
     assert client.get(f"/jobs/{job_id}/applications", headers=b).status_code == 404
+
+
+def test_login_rate_limited(client):
+    register_org(client, "Acme", "admin@acme.com")
+    codes = [client.post("/auth/login",
+                         json={"email": "admin@acme.com", "password": "wrong-password"}).status_code
+             for _ in range(7)]
+    assert codes[:5] == [401] * 5
+    assert 429 in codes[5:]
+
+
+def test_candidate_can_delete_account(client):
+    admin = register_org(client, "Acme", "admin@acme.com")
+    org_id = client.get("/auth/me", headers=admin).json()["org_id"]
+    r = client.post("/auth/register-candidate",
+                    json={"org_id": org_id, "email": "c@acme.com", "password": "StrongPass123"})
+    cand = {"Authorization": f"Bearer {r.json()['access_token']}"}
+    assert client.delete("/auth/me", headers=cand).status_code == 204
+    assert client.get("/auth/me", headers=cand).status_code == 401
+    assert client.delete("/auth/me", headers=admin).status_code == 400

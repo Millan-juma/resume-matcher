@@ -16,6 +16,12 @@ assert engine.url.database.endswith("_test"), "Tests must run on the test databa
 def clean_db():
     Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
+    try:
+        from app.core.ratelimit import r
+        for k in r.scan_iter('rl:*'):
+            r.delete(k)
+    except Exception:
+        pass
     yield
 
 
