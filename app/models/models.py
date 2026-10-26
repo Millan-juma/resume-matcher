@@ -71,3 +71,11 @@ class Application(Base):
     score_breakdown: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     job: Mapped["Job"] = relationship(back_populates="applications")
+
+
+class LLMCache(Base):
+    __tablename__ = "llm_cache"
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    org_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), index=True)
+    response: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
