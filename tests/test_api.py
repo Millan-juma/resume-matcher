@@ -1,0 +1,49 @@
+def register_org(client, org, email):
+    r = client.post("/auth/register-org",
+                    json={"org_name": org, "email": email, "password": "StrongPass123"})
+    assert r.status_code == 201
+    return {"Authorization": f"Bearer {r.json()['access_token']}"}
+
+
+JOB = {"title": "Backend Engineer",
+       "description": "We need Python and FastAPI experience with PostgreSQL."}
+
+
+def test_health(client):
+    assert client.get("/health").json() == {"status": "ok"}
+
+
+def test_register_and_me(client):
+    h = register_org(client, "Acme", "admin@acme.com")
+    me = client.get("/auth/me", headers=h).json()
+    assert me["role"] == "admin" and me["email"] == "admin@acme.com"
+
+
+def test_duplicate_email_rejected(client):
+    register_org(client, "Acme", "admin@acme.com")
+    r = client.post("/auth/register-org",
+                    json={"org_name": "Other", "email": "admin@acme.com", "password": "StrongPass123"})
+    assert r.status_code == 409
+
+
+def test_wrong_password_rejected(client):
+    register_org(client, "Acme", "admin@acme.com")
+    r = client.post("/auth/login", json={"email": "admin@acme.com", "password": "wrong-password"})
+    assert r.status_code == 401
+
+
+def test_candidate_cannot_create_job(client):
+    admin = register_org(client, "Acme", "admin@acme.com")
+    org_id = client.get("/auth/me", headers=admin).json()["org_id"]
+    r = client.post("/auth/register-candidate",
+                    json={"org_id": org_id, "email": "c@acme.com", "password": "StrongPass123"})
+    cand = {"Authorization": f"Bearer {r.json()['access_token']}"}
+    assert client.post("/jobs", json=JOB, headers=cand).status_code == 403
+
+
+def test_orgs_are_isolated(client):
+    a = register_org(client, "Org A", "a@a.com")
+    b = register_org(client, "Org B", "b@b.com")
+    job_id = client.post("/jobs", json=JOB, headers=a).json()["id"]
+    assert client.get("/jobs", headers=b).json() == []
+    assert client.get(f"/jobs/{job_id}/applications", headers=b).status_code == 404

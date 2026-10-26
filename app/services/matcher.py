@@ -3,8 +3,13 @@ from sentence_transformers import SentenceTransformer, util
 
 model = SentenceTransformer("all-MiniLM-L6-v2")
 
-SKILLS = {"python", "fastapi", "django", "sql", "postgresql", "docker",
-          "git", "react", "aws", "redis", "javascript", "machine learning"}
+SKILLS = {
+    "python", "fastapi", "django", "flask", "sqlalchemy", "sql", "postgresql",
+    "mysql", "mongodb", "redis", "docker", "kubernetes", "git", "aws", "azure",
+    "gcp", "linux", "react", "javascript", "typescript", "node.js", "html", "css",
+    "rest", "graphql", "pytest", "celery", "alembic", "machine learning",
+    "pandas", "numpy", "pytorch", "tensorflow", "ci/cd", "java", "go",
+}
 
 def chunk(text, size=120, overlap=20):
     words = text.split()

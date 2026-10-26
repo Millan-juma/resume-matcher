@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime, timezone
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import JSON, DateTime, Enum, Float, ForeignKey, String, Text
+from sqlalchemy import JSON, DateTime, Enum, Float, ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
@@ -60,6 +60,7 @@ class Job(Base):
 
 class Application(Base):
     __tablename__ = "applications"
+    __table_args__ = (UniqueConstraint("job_id", "candidate_id", name="uq_job_candidate"),)
     id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
     org_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), index=True)
     job_id: Mapped[str] = mapped_column(ForeignKey("jobs.id"), index=True)
