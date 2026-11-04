@@ -8,7 +8,7 @@ from app.core.db import get_db
 from app.models import Application, Job, Role, Stage, User
 from app.schemas import ApplicationOut, JobCreate, JobOut, StageUpdate
 from app.services.parser import extract_pdf_text
-from app.workers.tasks import score_application
+from app.services.queue import dispatch_scoring
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 MAX_PDF_BYTES = 5 * 1024 * 1024
@@ -66,7 +66,7 @@ async def apply(job_id: str, background: BackgroundTasks,
     except IntegrityError:
         db.rollback()
         raise HTTPException(409, "You already applied to this job")
-    background.add_task(score_application, application.id)
+    dispatch_scoring(background, application.id)
     return application
 
 
@@ -116,7 +116,7 @@ def rescore(job_id: str, background: BackgroundTasks, only_unfinished: bool = Fa
         a.scoring_error = None
     db.commit()
     for a in apps:
-        background.add_task(score_application, a.id)
+        dispatch_scoring(background, a.id)
     return {"queued": len(apps)}
 
 

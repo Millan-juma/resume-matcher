@@ -1,6 +1,7 @@
 import os
 
-os.environ["POSTGRES_DB"] = "resume_matcher_test"  # must be set before importing app
+os.environ["POSTGRES_DB"] = "resume_matcher_test"
+os.environ["QUEUE_MODE"] = "inline"  # must be set before importing app
 
 import pytest
 from fastapi.testclient import TestClient

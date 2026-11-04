@@ -335,3 +335,91 @@ def test_job_detail_is_org_scoped(client):
     job_id = client.post("/jobs", json=JOB, headers=a).json()["id"]
     assert client.get(f"/jobs/{job_id}", headers=a).json()["title"] == "Backend Engineer"
     assert client.get(f"/jobs/{job_id}", headers=b).status_code == 404
+
+
+class _FakeBackground:
+    def __init__(self):
+        self.calls = []
+
+    def add_task(self, fn, *args):
+        self.calls.append((fn.__name__, args))
+
+
+def test_dispatch_falls_back_when_redis_is_down(monkeypatch):
+    from redis.exceptions import ConnectionError as RedisDown
+
+    from app.core.config import settings
+    from app.services import queue as q
+
+    def down(*a, **k):
+        raise RedisDown("down")
+
+    monkeypatch.setattr(settings, "queue_mode", "redis")
+    monkeypatch.setattr(q.queue, "enqueue", down)
+    bg = _FakeBackground()
+    q.dispatch_scoring(bg, "abc")
+    assert bg.calls == [("score_application", ("abc",))]
+
+
+def test_dispatch_uses_queue_when_available(monkeypatch):
+    from app.core.config import settings
+    from app.services import queue as q
+
+    sent = []
+    monkeypatch.setattr(settings, "queue_mode", "redis")
+    monkeypatch.setattr(q.queue, "enqueue", lambda *a, **k: sent.append(a))
+    bg = _FakeBackground()
+    q.dispatch_scoring(bg, "abc")
+    assert sent and sent[0][1] == "abc" and bg.calls == []
+
+
+def test_inline_mode_never_touches_the_queue(monkeypatch):
+    from app.core.config import settings
+    from app.services import queue as q
+
+    def forbidden(*a, **k):
+        raise AssertionError("queue must not be used in inline mode")
+
+    monkeypatch.setattr(settings, "queue_mode", "inline")
+    monkeypatch.setattr(q.queue, "enqueue", forbidden)
+    bg = _FakeBackground()
+    q.dispatch_scoring(bg, "abc")
+    assert bg.calls == [("score_application", ("abc",))]
+
+
+def test_failed_scoring_raises_so_the_queue_retries(client, monkeypatch):
+    import pytest
+
+    from app.core.db import SessionLocal
+    from app.models import Application
+    from app.workers import tasks
+
+    app_id = _make_application(client)
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("model exploded")
+
+    monkeypatch.setattr(tasks, "score", boom)
+    with pytest.raises(RuntimeError):
+        tasks.score_job(app_id)
+    with SessionLocal() as db:
+        assert db.get(Application, app_id).scoring_status == "failed"
+
+
+def test_job_runs_through_real_redis_queue(client, monkeypatch):
+    from redis import Redis
+    from rq import Queue
+
+    from app.core.config import settings
+    from app.core.db import SessionLocal
+    from app.models import Application
+    from app.workers import tasks
+
+    app_id = _make_application(client)
+    fake = {"score": 81.0, "matched_skills": ["python"], "missing_skills": []}
+    monkeypatch.setattr(tasks, "score", lambda *a, **k: fake)
+    q = Queue("test-scoring", connection=Redis.from_url(settings.redis_url), is_async=False)
+    q.enqueue(tasks.score_job, app_id)  # is_async=False runs it immediately, via real Redis
+    with SessionLocal() as db:
+        a = db.get(Application, app_id)
+        assert a.scoring_status == "done" and a.score == 81.0
