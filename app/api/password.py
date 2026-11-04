@@ -36,7 +36,7 @@ def forgot_password(body: ForgotIn, request: Request, background: BackgroundTask
     limit(f"forgot:ip:{_ip(request)}", 10, 3600)
     limit(f"forgot:email:{email}", 3, 3600)
     user = db.scalar(select(User).where(User.email == email))
-    if user:
+    if user and user.is_active:
         token = create_reset_token(db, user.id)
         background.add_task(send_reset_email, user.email, token)
     return GENERIC  # identical whether or not the account exists

@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     postgres_port: int = 5432
     redis_url: str = "redis://localhost:6379/0"
     secret_key: str = "dev-only-change-me"
+    cors_origins: str = "http://localhost:5173,http://localhost:3000"
     email_provider: str = "console"
     smtp_host: str = ""
     smtp_port: int = 587

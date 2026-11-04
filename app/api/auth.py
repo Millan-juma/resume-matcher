@@ -61,7 +61,7 @@ def register_candidate(body: RegisterCandidate, db: Session = Depends(get_db)):
 def login(body: LoginIn, request: Request, db: Session = Depends(get_db)):
     limit(f"login:{_ip(request)}:{body.email.lower()}", 5, 300)
     user = db.scalar(select(User).where(User.email == body.email.lower()))
-    if not user or not verify_password(body.password, user.password_hash):
+    if not user or not user.is_active or not verify_password(body.password, user.password_hash):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid email or password")
     return _tokens(db, user)
 
@@ -74,7 +74,7 @@ def refresh(body: RefreshIn, request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or expired refresh token")
     user_id, new_refresh = result
     user = db.get(User, user_id)
-    if not user:
+    if not user or not user.is_active:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or expired refresh token")
     return TokenOut(
         access_token=create_access_token(user.id, user.org_id, user.role.value),

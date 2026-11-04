@@ -263,3 +263,75 @@ def test_forgot_password_rate_limited(client, sent_emails):
     codes = [client.post("/auth/forgot-password", json={"email": "admin@acme.com"}).status_code
              for _ in range(4)]
     assert codes == [202, 202, 202, 429]
+
+
+def test_cors_allows_configured_origin_only(client):
+    hdr = {"Access-Control-Request-Method": "GET", "Access-Control-Request-Headers": "authorization"}
+    ok = client.options("/jobs", headers={**hdr, "Origin": "http://localhost:5173"})
+    assert ok.headers.get("access-control-allow-origin") == "http://localhost:5173"
+    bad = client.options("/jobs", headers={**hdr, "Origin": "http://evil.example"})
+    assert "access-control-allow-origin" not in bad.headers
+
+
+def test_admin_creates_recruiter_who_can_post_jobs(client):
+    admin = register_org(client, "Acme", "admin@acme.com")
+    body = {"email": "rec@acme.com", "password": "StrongPass123", "role": "recruiter"}
+    assert client.post("/users/staff", json=body, headers=admin).status_code == 201
+    login = client.post("/auth/login", json={"email": "rec@acme.com", "password": "StrongPass123"})
+    rec = {"Authorization": f"Bearer {login.json()['access_token']}"}
+    assert client.post("/jobs", json=JOB, headers=rec).status_code == 201
+    other_body = {"email": "x@acme.com", "password": "StrongPass123", "role": "recruiter"}
+    assert client.post("/users/staff", json=other_body, headers=rec).status_code == 403
+    assert len(client.get("/users/staff", headers=admin).json()) == 2
+    other = register_org(client, "Other", "o@o.com")
+    assert len(client.get("/users/staff", headers=other).json()) == 1
+
+
+def test_deactivated_staff_loses_access(client):
+    admin = register_org(client, "Acme", "admin@acme.com")
+    creds = {"email": "rec@acme.com", "password": "StrongPass123"}
+    rec_id = client.post("/users/staff", json={**creds, "role": "recruiter"}, headers=admin).json()["id"]
+    login = client.post("/auth/login", json=creds).json()
+    rec = {"Authorization": f"Bearer {login['access_token']}"}
+    assert client.get("/auth/me", headers=rec).status_code == 200
+
+    admin_id = client.get("/auth/me", headers=admin).json()["id"]
+    assert client.post(f"/users/{admin_id}/deactivate", headers=admin).status_code == 400
+    other = register_org(client, "Other", "o@o.com")
+    assert client.post(f"/users/{rec_id}/deactivate", headers=other).status_code == 404
+
+    assert client.post(f"/users/{rec_id}/deactivate", headers=admin).status_code == 204
+    assert client.get("/auth/me", headers=rec).status_code == 401
+    assert client.post("/auth/login", json=creds).status_code == 401
+    assert client.post("/auth/refresh", json={"refresh_token": login["refresh_token"]}).status_code == 401
+
+    assert client.post(f"/users/{rec_id}/reactivate", headers=admin).status_code == 204
+    assert client.post("/auth/login", json=creds).status_code == 200
+
+
+def test_candidate_sees_only_own_applications_without_scores(client):
+    _make_application(client)
+    cand = client.post("/auth/login", json={"email": "c@acme.com", "password": "StrongPass123"})
+    h = {"Authorization": f"Bearer {cand.json()['access_token']}"}
+    r = client.get("/applications/me", headers=h)
+    assert r.status_code == 200 and len(r.json()) == 1
+    assert r.json()[0]["job_title"] == "Dev" and "score" not in r.json()[0]
+    adm = client.post("/auth/login", json={"email": "admin@acme.com", "password": "StrongPass123"})
+    ah = {"Authorization": f"Bearer {adm.json()['access_token']}"}
+    assert client.get("/applications/me", headers=ah).status_code == 403
+
+
+def test_applicants_pagination_bounds(client):
+    admin = register_org(client, "Acme", "admin@acme.com")
+    job_id = client.post("/jobs", json=JOB, headers=admin).json()["id"]
+    assert client.get(f"/jobs/{job_id}/applications?limit=0", headers=admin).status_code == 422
+    assert client.get(f"/jobs/{job_id}/applications?limit=500", headers=admin).status_code == 422
+    assert client.get(f"/jobs/{job_id}/applications?limit=10&offset=0", headers=admin).status_code == 200
+
+
+def test_job_detail_is_org_scoped(client):
+    a = register_org(client, "Org A", "a@a.com")
+    b = register_org(client, "Org B", "b@b.com")
+    job_id = client.post("/jobs", json=JOB, headers=a).json()["id"]
+    assert client.get(f"/jobs/{job_id}", headers=a).json()["title"] == "Backend Engineer"
+    assert client.get(f"/jobs/{job_id}", headers=b).status_code == 404

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -72,12 +72,14 @@ async def apply(job_id: str, background: BackgroundTasks,
 
 @router.get("/{job_id}/applications", response_model=list[ApplicationOut])
 def ranked_applications(job_id: str, user: User = Depends(require_roles(*STAFF)),
-                        db: Session = Depends(get_db)):
+                        db: Session = Depends(get_db),
+                        limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0)):
     job = _job_in_org(db, job_id, user)
     return db.scalars(
         select(Application)
         .where(Application.job_id == job.id, Application.org_id == user.org_id)
-        .order_by(Application.score.desc().nulls_last())
+        .order_by(Application.score.desc().nulls_last(), Application.created_at)
+        .limit(limit).offset(offset)
     ).all()
 
 
@@ -116,3 +118,8 @@ def rescore(job_id: str, background: BackgroundTasks, only_unfinished: bool = Fa
     for a in apps:
         background.add_task(score_application, a.id)
     return {"queued": len(apps)}
+
+
+@router.get("/{job_id}", response_model=JobOut)
+def get_job(job_id: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return _job_in_org(db, job_id, user)
