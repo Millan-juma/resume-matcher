@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime, timezone
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import JSON, DateTime, Enum, Float, ForeignKey, String, Text, UniqueConstraint, Boolean
+from sqlalchemy import JSON, DateTime, Enum, Float, ForeignKey, String, Text, UniqueConstraint, Boolean, LargeBinary
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
@@ -67,6 +67,7 @@ class Application(Base):
     job_id: Mapped[str] = mapped_column(ForeignKey("jobs.id"), index=True)
     candidate_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
     resume_text: Mapped[str] = mapped_column(Text)
+    resume_pdf: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True, deferred=True)
     stage: Mapped[Stage] = mapped_column(Enum(Stage), default=Stage.applied)
     score: Mapped[float | None] = mapped_column(Float, nullable=True)
     score_breakdown: Mapped[dict | None] = mapped_column(JSON, nullable=True)

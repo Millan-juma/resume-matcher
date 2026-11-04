@@ -7,6 +7,7 @@ from app.api.deps import get_current_user, require_roles
 from app.core.db import get_db
 from app.models import Application, Job, Role, Stage, User
 from app.schemas import ApplicationOut, JobCreate, JobOut, StageUpdate
+from app.services.ocr import ocr_available
 from app.services.parser import extract_pdf_text
 from app.services.queue import dispatch_scoring
 
@@ -53,13 +54,16 @@ async def apply(job_id: str, background: BackgroundTasks,
         text = extract_pdf_text(data)
     except Exception:
         raise HTTPException(422, "Could not read this PDF")
-    if len(text) < 50:
-        raise HTTPException(422, "No readable text found. Scanned PDFs are not supported yet")
+    needs_ocr = len(text) < 50
+    if needs_ocr and not ocr_available():
+        raise HTTPException(422, "No readable text found. This server cannot read scanned PDFs")
     if db.scalar(select(Application).where(
             Application.job_id == job.id, Application.candidate_id == user.id)):
         raise HTTPException(409, "You already applied to this job")
     application = Application(org_id=user.org_id, job_id=job.id,
-                              candidate_id=user.id, resume_text=text)
+                              candidate_id=user.id,
+                              resume_text="" if needs_ocr else text,
+                              resume_pdf=data if needs_ocr else None)
     db.add(application)
     try:
         db.commit()

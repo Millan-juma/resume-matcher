@@ -97,10 +97,9 @@ Tests run against a separate `resume_matcher_test` database.
 
 ## Known limitations and roadmap
 
-- Scanned (image-only) PDFs are rejected. OCR is planned.
+- OCR covers the first 5 pages of scanned PDFs and needs Tesseract installed. Accuracy depends on scan quality.
 - Skill list is global and hardcoded. Per-organization skill lists are planned.
-- Background tasks run in-process. Moving to a Redis worker queue (ARQ) adds
-  retries and horizontal scaling.
+- Scoring runs in a separate worker (RQ + Redis) with retries. If Redis is down, the API falls back to in-process tasks.
 - Default embedding model is English-focused. Use a multilingual model
   (paraphrase-multilingual-MiniLM-L12-v2) for other languages.
 - Refresh tokens, email verification and password reset are not implemented yet.

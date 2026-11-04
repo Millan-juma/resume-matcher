@@ -423,3 +423,86 @@ def test_job_runs_through_real_redis_queue(client, monkeypatch):
     with SessionLocal() as db:
         a = db.get(Application, app_id)
         assert a.scoring_status == "done" and a.score == 81.0
+
+
+def _scanned_pdf(text="Senior Python developer with FastAPI PostgreSQL and Docker experience"):
+    import io
+
+    from PIL import Image, ImageDraw, ImageFont
+
+    img = Image.new("RGB", (2400, 300), "white")
+    ImageDraw.Draw(img).text((40, 110), text, fill="black", font=ImageFont.load_default(size=56))
+    buf = io.BytesIO()
+    img.save(buf, "PDF", resolution=150)
+    return buf.getvalue()
+
+
+def _job_and_candidate(client):
+    admin = register_org(client, "Acme", "admin@acme.com")
+    me = client.get("/auth/me", headers=admin).json()
+    job_id = client.post("/jobs", json=JOB, headers=admin).json()["id"]
+    r = client.post("/auth/register-candidate",
+                    json={"org_id": me["org_id"], "email": "c@acme.com", "password": "StrongPass123"})
+    return job_id, {"Authorization": f"Bearer {r.json()['access_token']}"}
+
+
+def _apply_scan(client, job_id, cand):
+    return client.post(f"/jobs/{job_id}/apply", headers=cand,
+                       files={"resume": ("cv.pdf", _scanned_pdf(), "application/pdf")})
+
+
+def test_scanned_pdf_rejected_when_ocr_unavailable(client, monkeypatch):
+    monkeypatch.setattr("app.api.jobs.ocr_available", lambda: False)
+    job_id, cand = _job_and_candidate(client)
+    assert _apply_scan(client, job_id, cand).status_code == 422
+
+
+def test_scanned_pdf_is_ocrd_then_scored(client, monkeypatch):
+    from app.core.db import SessionLocal
+    from app.models import Application
+    from app.workers import tasks
+
+    monkeypatch.setattr("app.api.jobs.ocr_available", lambda: True)
+    monkeypatch.setattr(tasks, "ocr_pdf",
+                        lambda data: "Python developer who builds FastAPI services with PostgreSQL and Docker.")
+    monkeypatch.setattr(tasks, "score",
+                        lambda *a, **k: {"score": 77.0, "matched_skills": ["python"], "missing_skills": []})
+    job_id, cand = _job_and_candidate(client)
+    r = _apply_scan(client, job_id, cand)
+    assert r.status_code == 201
+    with SessionLocal() as db:
+        a = db.get(Application, r.json()["id"])
+        assert a.scoring_status == "done" and a.score == 77.0
+        assert a.resume_text.startswith("Python developer")
+        assert a.resume_pdf is None  # the scan is not kept once the text is extracted
+
+
+def test_unreadable_scan_fails_without_retry(client, monkeypatch):
+    from app.core.db import SessionLocal
+    from app.models import Application
+    from app.workers import tasks
+
+    monkeypatch.setattr("app.api.jobs.ocr_available", lambda: True)
+    monkeypatch.setattr(tasks, "ocr_pdf", lambda data: "  ")
+    job_id, cand = _job_and_candidate(client)
+    r = _apply_scan(client, job_id, cand)
+    assert r.status_code == 201
+    app_id = r.json()["id"]
+    with SessionLocal() as db:
+        a = db.get(Application, app_id)
+        assert a.scoring_status == "failed" and a.scoring_error == "NoReadableText"
+        assert a.resume_pdf is None
+    tasks.score_job(app_id)  # a permanent failure must not raise, or the queue would retry it
+
+
+import shutil  # noqa: E402
+
+import pytest  # noqa: E402
+
+
+@pytest.mark.skipif(shutil.which("tesseract") is None, reason="Tesseract not installed")
+def test_real_ocr_reads_an_image_pdf():
+    from app.services.ocr import ocr_pdf
+
+    text = ocr_pdf(_scanned_pdf()).lower()
+    assert "fastapi" in text and "python" in text
