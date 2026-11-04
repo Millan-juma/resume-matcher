@@ -28,7 +28,7 @@ def explain(application_id: str,
     provider = get_provider()
     resume = redact(app_.resume_text)
     key = hashlib.sha256(
-        "\x00".join([user.org_id, provider.cache_id, resume, job.description]).encode()
+        "\x00".join([user.org_id, app_.id, provider.cache_id, resume, job.description]).encode()
     ).hexdigest()
 
     cached = db.get(LLMCache, key)
@@ -40,6 +40,7 @@ def explain(application_id: str,
     except LLMUnavailable as e:
         raise HTTPException(503, str(e))
 
-    db.add(LLMCache(key=key, org_id=user.org_id, response=result.model_dump()))
+    db.add(LLMCache(key=key, org_id=user.org_id, application_id=app_.id,
+                    response=result.model_dump()))
     db.commit()
     return {**result.model_dump(), "cached": False, "provider": provider.name, "note": NOTE}

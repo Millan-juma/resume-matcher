@@ -77,6 +77,8 @@ class LLMCache(Base):
     __tablename__ = "llm_cache"
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
     org_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), index=True)
+    application_id: Mapped[str | None] = mapped_column(
+        ForeignKey("applications.id", ondelete="CASCADE"), index=True, nullable=True)
     response: Mapped[dict] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 

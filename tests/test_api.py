@@ -76,3 +76,37 @@ def test_skills_are_per_org(client):
     assert r.status_code == 201 and r.json()["added"] == ["ansible", "terraform"]
     assert len(client.get("/skills", headers=a).json()["custom"]) == 2
     assert client.get("/skills", headers=b).json()["using_defaults"] is True
+
+
+def test_account_deletion_removes_cached_explanations(client):
+    from sqlalchemy import select
+
+    from app.core.db import SessionLocal
+    from app.models import Application, Job, LLMCache
+
+    admin = register_org(client, "Acme", "admin@acme.com")
+    me = client.get("/auth/me", headers=admin).json()
+    r = client.post("/auth/register-candidate",
+                    json={"org_id": me["org_id"], "email": "c@acme.com", "password": "StrongPass123"})
+    cand = {"Authorization": f"Bearer {r.json()['access_token']}"}
+    cand_id = client.get("/auth/me", headers=cand).json()["id"]
+
+    with SessionLocal() as db:
+        job = Job(org_id=me["org_id"], title="Dev",
+                  description="Python developer needed for APIs.", created_by=me["id"])
+        db.add(job)
+        db.flush()
+        a = Application(org_id=me["org_id"], job_id=job.id, candidate_id=cand_id,
+                        resume_text="resume text", score=50.0,
+                        score_breakdown={"matched_skills": [], "missing_skills": [], "score": 50.0})
+        db.add(a)
+        db.flush()
+        db.add(LLMCache(key="k" * 64, org_id=me["org_id"], application_id=a.id,
+                        response={"summary": "x"}))
+        db.commit()
+        assert db.scalar(select(LLMCache)) is not None
+
+    assert client.delete("/auth/me", headers=cand).status_code == 204
+
+    with SessionLocal() as db:
+        assert db.scalar(select(LLMCache)) is None
