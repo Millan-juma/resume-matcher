@@ -28,3 +28,11 @@ def clean_db():
 @pytest.fixture
 def client():
     return TestClient(app)
+
+
+@pytest.fixture
+def sent_emails(monkeypatch):
+    box = []
+    monkeypatch.setattr("app.api.password.send_reset_email",
+                        lambda to, token: box.append((to, token)))
+    return box

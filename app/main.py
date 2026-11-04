@@ -1,12 +1,13 @@
 from fastapi import FastAPI
 
-from app.api import auth, explain, jobs, skills
+from app.api import auth, explain, jobs, skills, password
 
 app = FastAPI(title="Resume Matcher API", version="0.1.0")
 app.include_router(auth.router)
 app.include_router(jobs.router)
 app.include_router(explain.router)
 app.include_router(skills.router)
+app.include_router(password.router)
 
 
 @app.get("/health")

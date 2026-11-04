@@ -204,3 +204,62 @@ def test_deleting_account_kills_sessions(client):
     rt = r.json()["refresh_token"]
     assert client.delete("/auth/me", headers=cand).status_code == 204
     assert client.post("/auth/refresh", json={"refresh_token": rt}).status_code == 401
+
+
+def test_forgot_password_is_silent_for_unknown_email(client, sent_emails):
+    register_org(client, "Acme", "admin@acme.com")
+    a = client.post("/auth/forgot-password", json={"email": "admin@acme.com"})
+    b = client.post("/auth/forgot-password", json={"email": "nobody@acme.com"})
+    assert a.status_code == b.status_code == 202
+    assert a.json() == b.json()
+    assert [to for to, _ in sent_emails] == ["admin@acme.com"]
+
+
+def test_password_reset_flow(client, sent_emails):
+    t = _register_org_tokens(client)
+    client.post("/auth/forgot-password", json={"email": "admin@acme.com"})
+    token = sent_emails[0][1]
+    r = client.post("/auth/reset-password", json={"token": token, "new_password": "BrandNewPass456"})
+    assert r.status_code == 204
+    old = client.post("/auth/login", json={"email": "admin@acme.com", "password": "StrongPass123"})
+    new = client.post("/auth/login", json={"email": "admin@acme.com", "password": "BrandNewPass456"})
+    assert old.status_code == 401 and new.status_code == 200
+    again = client.post("/auth/reset-password", json={"token": token, "new_password": "AnotherPass789"})
+    assert again.status_code == 400
+    assert client.post("/auth/refresh", json={"refresh_token": t["refresh_token"]}).status_code == 401
+
+
+def test_expired_reset_token_rejected(client, sent_emails):
+    from datetime import datetime, timedelta, timezone
+
+    from sqlalchemy import update
+
+    from app.core.db import SessionLocal
+    from app.models import PasswordReset
+
+    register_org(client, "Acme", "admin@acme.com")
+    client.post("/auth/forgot-password", json={"email": "admin@acme.com"})
+    token = sent_emails[0][1]
+    with SessionLocal() as db:
+        db.execute(update(PasswordReset).values(
+            expires_at=datetime.now(timezone.utc) - timedelta(minutes=1)))
+        db.commit()
+    r = client.post("/auth/reset-password", json={"token": token, "new_password": "BrandNewPass456"})
+    assert r.status_code == 400
+
+
+def test_weak_password_does_not_burn_the_token(client, sent_emails):
+    register_org(client, "Acme", "admin@acme.com")
+    client.post("/auth/forgot-password", json={"email": "admin@acme.com"})
+    token = sent_emails[0][1]
+    assert client.post("/auth/reset-password",
+                       json={"token": token, "new_password": "short"}).status_code == 422
+    assert client.post("/auth/reset-password",
+                       json={"token": token, "new_password": "BrandNewPass456"}).status_code == 204
+
+
+def test_forgot_password_rate_limited(client, sent_emails):
+    register_org(client, "Acme", "admin@acme.com")
+    codes = [client.post("/auth/forgot-password", json={"email": "admin@acme.com"}).status_code
+             for _ in range(4)]
+    assert codes == [202, 202, 202, 429]

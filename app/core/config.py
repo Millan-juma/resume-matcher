@@ -9,6 +9,12 @@ class Settings(BaseSettings):
     postgres_port: int = 5432
     redis_url: str = "redis://localhost:6379/0"
     secret_key: str = "dev-only-change-me"
+    email_provider: str = "console"
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = "no-reply@example.com"
     llm_provider: str = "none"
     gemini_api_key: str = ""
     gemini_model: str = "gemini-2.5-flash"
