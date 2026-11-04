@@ -67,3 +67,12 @@ def test_candidate_can_delete_account(client):
     assert client.delete("/auth/me", headers=cand).status_code == 204
     assert client.get("/auth/me", headers=cand).status_code == 401
     assert client.delete("/auth/me", headers=admin).status_code == 400
+
+
+def test_skills_are_per_org(client):
+    a = register_org(client, "Org A", "a@a.com")
+    b = register_org(client, "Org B", "b@b.com")
+    r = client.post("/skills", json={"names": ["Terraform", " terraform ", "Ansible"]}, headers=a)
+    assert r.status_code == 201 and r.json()["added"] == ["ansible", "terraform"]
+    assert len(client.get("/skills", headers=a).json()["custom"]) == 2
+    assert client.get("/skills", headers=b).json()["using_defaults"] is True

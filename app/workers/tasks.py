@@ -1,5 +1,7 @@
+from sqlalchemy import select
+
 from app.core.db import SessionLocal
-from app.models import Application, Job
+from app.models import Application, Job, Skill
 from app.services.matcher import score
 
 
@@ -10,7 +12,8 @@ def score_application(application_id: str) -> None:
         if not app_:
             return
         job = db.get(Job, app_.job_id)
-        result = score(app_.resume_text, job.description)
+        skills = set(db.scalars(select(Skill.name).where(Skill.org_id == app_.org_id)))
+        result = score(app_.resume_text, job.description, skills or None)
         app_.score = result["score"]
         app_.score_breakdown = result
         db.commit()

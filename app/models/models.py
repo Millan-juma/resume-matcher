@@ -79,3 +79,11 @@ class LLMCache(Base):
     org_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), index=True)
     response: Mapped[dict] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class Skill(Base):
+    __tablename__ = "skills"
+    __table_args__ = (UniqueConstraint("org_id", "name", name="uq_org_skill"),)
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    org_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), index=True)
+    name: Mapped[str] = mapped_column(String(100))

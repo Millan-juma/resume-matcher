@@ -91,3 +91,14 @@ def update_stage(application_id: str, body: StageUpdate,
     application.stage = stage
     db.commit()
     return application
+
+
+@router.post("/{job_id}/rescore", status_code=202)
+def rescore(job_id: str, background: BackgroundTasks,
+            user: User = Depends(require_roles(*STAFF)), db: Session = Depends(get_db)):
+    job = _job_in_org(db, job_id, user)
+    ids = db.scalars(select(Application.id).where(
+        Application.job_id == job.id, Application.org_id == user.org_id)).all()
+    for i in ids:
+        background.add_task(score_application, i)
+    return {"queued": len(ids)}

@@ -13,3 +13,10 @@ def test_missing_skills_reported():
     result = score("Python developer.", JOB)
     assert "python" in result["matched_skills"]
     assert "docker" in result["missing_skills"]
+
+
+def test_custom_skills_and_punctuation():
+    r = score("Experienced with Kubernetes, Terraform and node.js.",
+              "Need Kubernetes, Terraform and node.js skills.",
+              {"kubernetes", "terraform", "node.js"})
+    assert r["matched_skills"] == ["kubernetes", "node.js", "terraform"]
