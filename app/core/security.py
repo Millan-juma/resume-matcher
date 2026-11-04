@@ -8,7 +8,7 @@ from app.core.config import settings
 
 ph = PasswordHasher()
 ALGORITHM = "HS256"
-ACCESS_MINUTES = 30
+ACCESS_MINUTES = 15
 
 
 def hash_password(password: str) -> str:

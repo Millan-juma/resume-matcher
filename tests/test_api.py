@@ -163,3 +163,44 @@ def test_scoring_success_is_recorded(client, monkeypatch):
     with SessionLocal() as db:
         a = db.get(Application, app_id)
         assert a.scoring_status == "done" and a.score == 70.0 and a.scoring_error is None
+
+
+def _register_org_tokens(client):
+    r = client.post("/auth/register-org",
+                    json={"org_name": "Acme", "email": "admin@acme.com", "password": "StrongPass123"})
+    assert r.status_code == 201
+    return r.json()
+
+
+def test_refresh_rotates_and_detects_reuse(client):
+    t1 = _register_org_tokens(client)["refresh_token"]
+    r2 = client.post("/auth/refresh", json={"refresh_token": t1})
+    assert r2.status_code == 200
+    t2 = r2.json()["refresh_token"]
+    assert t2 != t1
+    me = client.get("/auth/me", headers={"Authorization": f"Bearer {r2.json()['access_token']}"})
+    assert me.status_code == 200
+    # replaying the old token fails and revokes the whole session family
+    assert client.post("/auth/refresh", json={"refresh_token": t1}).status_code == 401
+    assert client.post("/auth/refresh", json={"refresh_token": t2}).status_code == 401
+
+
+def test_logout_revokes_refresh_token(client):
+    t = _register_org_tokens(client)["refresh_token"]
+    assert client.post("/auth/logout", json={"refresh_token": t}).status_code == 204
+    assert client.post("/auth/refresh", json={"refresh_token": t}).status_code == 401
+
+
+def test_garbage_refresh_token_rejected(client):
+    assert client.post("/auth/refresh", json={"refresh_token": "not-a-real-token"}).status_code == 401
+
+
+def test_deleting_account_kills_sessions(client):
+    admin = register_org(client, "Acme2", "admin2@acme.com")
+    org_id = client.get("/auth/me", headers=admin).json()["org_id"]
+    r = client.post("/auth/register-candidate",
+                    json={"org_id": org_id, "email": "c2@acme.com", "password": "StrongPass123"})
+    cand = {"Authorization": f"Bearer {r.json()['access_token']}"}
+    rt = r.json()["refresh_token"]
+    assert client.delete("/auth/me", headers=cand).status_code == 204
+    assert client.post("/auth/refresh", json={"refresh_token": rt}).status_code == 401
