@@ -110,3 +110,56 @@ def test_account_deletion_removes_cached_explanations(client):
 
     with SessionLocal() as db:
         assert db.scalar(select(LLMCache)) is None
+
+
+def _make_application(client):
+    from app.core.db import SessionLocal
+    from app.models import Application, Job
+
+    admin = register_org(client, "Acme", "admin@acme.com")
+    me = client.get("/auth/me", headers=admin).json()
+    r = client.post("/auth/register-candidate",
+                    json={"org_id": me["org_id"], "email": "c@acme.com", "password": "StrongPass123"})
+    cand = {"Authorization": f"Bearer {r.json()['access_token']}"}
+    cand_id = client.get("/auth/me", headers=cand).json()["id"]
+    with SessionLocal() as db:
+        job = Job(org_id=me["org_id"], title="Dev",
+                  description="Python developer needed for APIs.", created_by=me["id"])
+        db.add(job)
+        db.flush()
+        a = Application(org_id=me["org_id"], job_id=job.id, candidate_id=cand_id,
+                        resume_text="Python developer with API experience.")
+        db.add(a)
+        db.commit()
+        return a.id
+
+
+def test_scoring_failure_is_recorded(client, monkeypatch):
+    from app.core.db import SessionLocal
+    from app.models import Application
+    from app.workers import tasks
+
+    app_id = _make_application(client)
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("model exploded")
+
+    monkeypatch.setattr(tasks, "score", boom)
+    tasks.score_application(app_id)
+    with SessionLocal() as db:
+        a = db.get(Application, app_id)
+        assert a.scoring_status == "failed" and a.scoring_error == "RuntimeError"
+
+
+def test_scoring_success_is_recorded(client, monkeypatch):
+    from app.core.db import SessionLocal
+    from app.models import Application
+    from app.workers import tasks
+
+    app_id = _make_application(client)
+    fake = {"score": 70.0, "matched_skills": ["python"], "missing_skills": []}
+    monkeypatch.setattr(tasks, "score", lambda *a, **k: fake)
+    tasks.score_application(app_id)
+    with SessionLocal() as db:
+        a = db.get(Application, app_id)
+        assert a.scoring_status == "done" and a.score == 70.0 and a.scoring_error is None

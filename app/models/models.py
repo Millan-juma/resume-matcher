@@ -69,6 +69,8 @@ class Application(Base):
     stage: Mapped[Stage] = mapped_column(Enum(Stage), default=Stage.applied)
     score: Mapped[float | None] = mapped_column(Float, nullable=True)
     score_breakdown: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    scoring_status: Mapped[str] = mapped_column(String(20), default="pending", server_default="done")
+    scoring_error: Mapped[str | None] = mapped_column(String(100), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     job: Mapped["Job"] = relationship(back_populates="applications")
 

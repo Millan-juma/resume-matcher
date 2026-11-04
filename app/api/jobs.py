@@ -1,5 +1,6 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, require_roles
@@ -60,7 +61,11 @@ async def apply(job_id: str, background: BackgroundTasks,
     application = Application(org_id=user.org_id, job_id=job.id,
                               candidate_id=user.id, resume_text=text)
     db.add(application)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, "You already applied to this job")
     background.add_task(score_application, application.id)
     return application
 
@@ -93,12 +98,21 @@ def update_stage(application_id: str, body: StageUpdate,
     return application
 
 
+
+
 @router.post("/{job_id}/rescore", status_code=202)
-def rescore(job_id: str, background: BackgroundTasks,
+def rescore(job_id: str, background: BackgroundTasks, only_unfinished: bool = False,
             user: User = Depends(require_roles(*STAFF)), db: Session = Depends(get_db)):
+    """Re-queue scoring. With only_unfinished=true, only pending or failed applications."""
     job = _job_in_org(db, job_id, user)
-    ids = db.scalars(select(Application.id).where(
-        Application.job_id == job.id, Application.org_id == user.org_id)).all()
-    for i in ids:
-        background.add_task(score_application, i)
-    return {"queued": len(ids)}
+    q = select(Application).where(Application.job_id == job.id, Application.org_id == user.org_id)
+    if only_unfinished:
+        q = q.where(Application.scoring_status != "done")
+    apps = db.scalars(q).all()
+    for a in apps:
+        a.scoring_status = "pending"
+        a.scoring_error = None
+    db.commit()
+    for a in apps:
+        background.add_task(score_application, a.id)
+    return {"queued": len(apps)}

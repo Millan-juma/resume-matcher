@@ -52,6 +52,7 @@ class ApplicationOut(BaseModel):
     stage: str
     score: float | None
     score_breakdown: dict | None
+    scoring_status: str
 
     model_config = {"from_attributes": True}
 
