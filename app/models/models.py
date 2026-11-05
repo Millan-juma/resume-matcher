@@ -2,7 +2,6 @@ import enum
 import uuid
 from datetime import datetime, timezone
 
-from pgvector.sqlalchemy import Vector
 from sqlalchemy import JSON, DateTime, Enum, Float, ForeignKey, String, Text, UniqueConstraint, Boolean, LargeBinary
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 

@@ -1,0 +1,105 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: ci_user
+          POSTGRES_PASSWORD: ci_password
+          POSTGRES_DB: resume_matcher_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci_user -d resume_matcher_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      POSTGRES_USER: ci_user
+      POSTGRES_PASSWORD: ci_password
+      POSTGRES_DB: resume_matcher_test
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: "5432"
+      REDIS_URL: redis://localhost:6379/0
+      SECRET_KEY: ci-only-secret
+      PYTHONPATH: .
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install Tesseract (for the real OCR test)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends tesseract-ocr
+      - name: Cache embedding model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-all-minilm-l6-v2
+      - name: Install dependencies
+        run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
+          pip install ruff
+      - name: Lint
+        run: ruff check .
+      - name: Migrations apply to an empty database and match the models
+        run: |
+          alembic upgrade head
+          alembic check
+      - name: Tests
+        run: pytest -v
+
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create env file
+        run: printf "POSTGRES_USER=ci_user\nPOSTGRES_PASSWORD=ci_password\nPOSTGRES_DB=resume_matcher\nSECRET_KEY=ci-only-secret\n" > .env
+      - name: Build and start the full stack
+        run: docker compose --profile app up -d --build
+      - name: Wait for the API
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:8000/health; then echo; exit 0; fi
+            sleep 3
+          done
+          docker compose --profile app logs --tail 100
+          exit 1
+      - name: Register an organization (proves the database and migrations work in the container)
+        run: |
+          curl -fsS -X POST http://localhost:8000/auth/register-org \
+            -H "Content-Type: application/json" \
+            -d '{"org_name":"CI Co","email":"ci@example.com","password":"StrongPass123"}' > /dev/null
+      - name: Worker is running
+        run: |
+          sleep 10
+          docker compose --profile app ps --status running --services | grep -qx worker
+      - name: Logs
+        if: always()
+        run: docker compose --profile app logs --tail 60
+      - name: Stop
+        if: always()
+        run: docker compose --profile app down -v

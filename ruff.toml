@@ -1,0 +1,4 @@
+exclude = ["migrations"]
+
+[lint]
+select = ["E9", "F"]
