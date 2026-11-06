@@ -7,3 +7,4 @@ tests/
 .github/
 .pytest_cache/
 .ruff_cache/
+frontend/
